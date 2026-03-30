@@ -1,0 +1,27 @@
+name: Build Off-Day IPA
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: |
+          xcodebuild clean archive -project "Off Day.xcodeproj" -scheme "Off Day" -destination "generic/platform=iOS" -archivePath Off-Day.xcarchive CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
+
+      - name: Export IPA
+        run: |
+          mkdir Payload
+          cp -r "Off-Day.xcarchive/Products/Applications/Off Day.app" Payload/
+          zip -r Off-Day.ipa Payload/
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Off-Day-IPA
+          path: Off-Day.ipa
