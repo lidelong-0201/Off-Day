@@ -7,40 +7,86 @@ on:
 jobs:
   build:
     runs-on: macos-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - uses: actions/checkout@v5
 
-      - name: Build (Fix Space & No Sign)
+      - name: Show project structure
         run: |
-          # 找到项目文件，自动适配带空格的名称
-          PROJECT=$(find . -name "*.xcodeproj" | head -n 1)
-          SCHEME=$(xcodebuild -list -project "$PROJECT" | grep -A 1 "Schemes:" | tail -n 1 | xargs)
+          echo "=== Project Structure ==="
+          find . -type f -name "*.xcodeproj" -o -name "*.xcworkspace"
+          echo "=== Xcode Project Info ==="
+          ls -la
+          xcodebuild -list || echo "xcodebuild list failed"
+
+      - name: Build IPA (TrollStore Compatible - No Sign)
+        run: |
+          # 自动查找项目文件
+          PROJECT_FILE=$(find . -name "*.xcodeproj" | head -n 1)
+          if [ -z "$PROJECT_FILE" ]; then
+            echo "❌ Error: No .xcodeproj file found!"
+            exit 1
+          fi
           
-          # 无签名编译打包
+          # 自动获取 Scheme
+          SCHEME_NAME=$(xcodebuild -list -project "$PROJECT_FILE" | grep -A 1 "Schemes:" | tail -n 1 | xargs)
+          if [ -z "$SCHEME_NAME" ]; then
+            echo "❌ Error: No scheme found!"
+            exit 1
+          fi
+          
+          echo "📁 Found project: $PROJECT_FILE"
+          echo "📋 Found scheme: $SCHEME_NAME"
+          
+          # 无签名编译（关键！巨魔专用）
           xcodebuild clean archive \
-            -project "$PROJECT" \
-            -scheme "$SCHEME" \
+            -project "$PROJECT_FILE" \
+            -scheme "$SCHEME_NAME" \
             -destination "generic/platform=iOS" \
             -archivePath "Off-Day.xcarchive" \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
-            DEVELOPMENT_TEAM=""
-
-      - name: Export IPA (TrollStore专用)
-        run: |
-          # 自动找到.app包
-          APP_PATH=$(find "Off-Day.xcarchive/Products/Applications" -name "*.app" | head -n 1)
-          # 制作Payload
+            DEVELOPMENT_TEAM="" \
+            SKIP_INSTALL=NO \
+            BUILD_LIBRARY_FOR_DISTRIBUTION=YES
+          
+          # 检查归档是否生成
+          if [ ! -d "Off-Day.xcarchive" ]; then
+            echo "❌ Error: Archive not created!"
+            exit 1
+          fi
+          
+          # 提取 .app 文件
+          APP_PATH=$(find Off-Day.xcarchive/Products/Applications -name "*.app" | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            echo "❌ Error: No .app file found in archive!"
+            exit 1
+          fi
+          
+          echo "📦 Found app: $APP_PATH"
+          
+          # 制作 IPA 包（标准格式）
           mkdir -p Payload
           cp -R "$APP_PATH" Payload/
-          # 打包成IPA
           zip -r Off-Day.ipa Payload/
+          
           # 清理
           rm -rf Payload
+          
+          # 检查 IPA 是否生成
+          if [ ! -f "Off-Day.ipa" ]; then
+            echo "❌ Error: IPA file not created!"
+            exit 1
+          fi
+          
+          echo "✅ IPA created successfully!"
+          ls -la Off-Day.ipa
 
-      - name: Upload IPA
+      - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
         with:
           name: Off-Day-IPA
           path: Off-Day.ipa
+          retention-days: 7
