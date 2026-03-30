@@ -13,6 +13,13 @@ jobs:
       - name: 拉取代码
         uses: actions/checkout@v4
 
+      - name: 清理 Xcode 缓存
+        run: |
+          rm -rf ~/Library/Developer/Xcode/DerivedData/*
+          rm -rf ~/Library/Caches/com.apple.dt.Xcode
+          rm -rf ~/Library/Caches/com.apple.dt.XCODe
+          echo "✅ 清理完成"
+
       - name: 检查项目信息（排查用）
         run: |
           echo "=== 项目文件列表 ==="
@@ -24,11 +31,9 @@ jobs:
 
       - name: 无签名编译打包（巨魔专用）
         run: |
-          # 固定原仓库的项目名和Scheme，彻底避免空格/名称错误
           PROJECT="Off Day.xcodeproj"
           SCHEME="Off Day"
 
-          # 全参数关闭签名，强制覆盖所有可能的签名校验
           xcodebuild clean archive \
             -project "$PROJECT" \
             -scheme "$SCHEME" \
@@ -44,14 +49,12 @@ jobs:
             SKIP_INSTALL=NO \
             BUILD_LIBRARY_FOR_DISTRIBUTION=YES
 
-          # 校验编译是否成功
           APP_PATH="Off-Day.xcarchive/Products/Applications/Off Day.app"
           if [ ! -d "$APP_PATH" ]; then
             echo "❌ 编译失败，请检查上面的详细错误日志"
             exit 1
           fi
 
-          # 制作标准IPA（巨魔直接安装）
           rm -rf Payload Off-Day.ipa
           mkdir Payload
           cp -R "$APP_PATH" Payload/
