@@ -10,38 +10,45 @@ jobs:
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
-      - uses: actions/checkout@v5
+      - name: Checkout Repository
+        uses: actions/checkout@v4 # Reverted to stable v4
 
       - name: Show project structure
         run: |
           echo "=== Project Structure ==="
-          find . -type f -name "*.xcodeproj" -o -name "*.xcworkspace"
-          echo "=== Xcode Project Info ==="
           ls -la
-          xcodebuild -list || echo "xcodebuild list failed"
+          find . -maxdepth 2 -type d \( -name "*.xcodeproj" -o -name "*.xcworkspace" \)
 
       - name: Build IPA (TrollStore Compatible - No Sign)
         run: |
-          # 自动查找项目文件
-          PROJECT_FILE=$(find . -name "*.xcodeproj" | head -n 1)
-          if [ -z "$PROJECT_FILE" ]; then
-            echo "❌ Error: No .xcodeproj file found!"
-            exit 1
+          # 1. Automatically detect Workspace or Project
+          if [ -d "Off-Day.xcworkspace" ] || find . -maxdepth 2 -name "*.xcworkspace" | grep -q .; then
+            BUILD_TARGET=$(find . -maxdepth 2 -name "*.xcworkspace" | head -n 1)
+            TARGET_FLAG="-workspace"
+            echo "📁 Found workspace: $BUILD_TARGET"
+          else
+            BUILD_TARGET=$(find . -maxdepth 2 -name "*.xcodeproj" | head -n 1)
+            TARGET_FLAG="-project"
+            if [ -z "$BUILD_TARGET" ]; then
+              echo "❌ Error: No .xcodeproj or .xcworkspace file found!"
+              exit 1
+            fi
+            echo "📁 Found project: $BUILD_TARGET"
           fi
           
-          # 自动获取 Scheme
-          SCHEME_NAME=$(xcodebuild -list -project "$PROJECT_FILE" | grep -A 1 "Schemes:" | tail -n 1 | xargs)
+          # 2. Extract the Scheme automatically
+          # Uses awk to grab the first scheme listed under the "Schemes:" section
+          SCHEME_NAME=$(xcodebuild -list $TARGET_FLAG "$BUILD_TARGET" | awk '/Schemes:/{flag=1; next} /^[[:space:]]*$/{flag=0} flag {print $1; exit}')
+          
           if [ -z "$SCHEME_NAME" ]; then
-            echo "❌ Error: No scheme found!"
-            exit 1
+            echo "❌ Error: No scheme found! Attempting fallback to 'Off-Day'"
+            SCHEME_NAME="Off-Day" # Add your exact scheme name here as a fallback
           fi
+          echo "📋 Using scheme: $SCHEME_NAME"
           
-          echo "📁 Found project: $PROJECT_FILE"
-          echo "📋 Found scheme: $SCHEME_NAME"
-          
-          # 无签名编译（关键！巨魔专用）
+          # 3. Unsigned Build for TrollStore
           xcodebuild clean archive \
-            -project "$PROJECT_FILE" \
+            $TARGET_FLAG "$BUILD_TARGET" \
             -scheme "$SCHEME_NAME" \
             -destination "generic/platform=iOS" \
             -archivePath "Off-Day.xcarchive" \
@@ -52,13 +59,12 @@ jobs:
             SKIP_INSTALL=NO \
             BUILD_LIBRARY_FOR_DISTRIBUTION=YES
           
-          # 检查归档是否生成
           if [ ! -d "Off-Day.xcarchive" ]; then
             echo "❌ Error: Archive not created!"
             exit 1
           fi
           
-          # 提取 .app 文件
+          # 4. Extract .app and package to .ipa
           APP_PATH=$(find Off-Day.xcarchive/Products/Applications -name "*.app" | head -n 1)
           if [ -z "$APP_PATH" ]; then
             echo "❌ Error: No .app file found in archive!"
@@ -67,26 +73,21 @@ jobs:
           
           echo "📦 Found app: $APP_PATH"
           
-          # 制作 IPA 包（标准格式）
           mkdir -p Payload
           cp -R "$APP_PATH" Payload/
-          zip -r Off-Day.ipa Payload/
-          
-          # 清理
+          zip -qr Off-Day.ipa Payload/ # added -q for quiet zipping to avoid cluttering logs
           rm -rf Payload
           
-          # 检查 IPA 是否生成
           if [ ! -f "Off-Day.ipa" ]; then
             echo "❌ Error: IPA file not created!"
             exit 1
           fi
           
           echo "✅ IPA created successfully!"
-          ls -la Off-Day.ipa
 
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Off-Day-IPA
+          name: Off-Day-TrollStore-IPA
           path: Off-Day.ipa
           retention-days: 7
